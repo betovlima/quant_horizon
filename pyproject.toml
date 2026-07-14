@@ -1,0 +1,28 @@
+[project]
+name = "quant-horizon"
+version = "2.0.0"
+description = "FastAPI backend for quantitative market forecasts and backtests."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.30,<1",
+    "yfinance>=0.2.54,<1",
+    "lightgbm>=4.3,<5",
+    "catboost>=1.2,<2",
+    "xgboost>=2.1,<4",
+    "pandas>=2.2,<3",
+    "pandas-market-calendars>=5,<6",
+    "numpy>=1.26,<3",
+    "scikit-learn>=1.4,<2",
+]
+
+[project.scripts]
+quant-horizon-api = "quant_horizon.cli:main"
+
+[tool.poetry]
+packages = [{ include = "quant_horizon", from = "src" }]
+
+[build-system]
+requires = ["poetry-core>=2.0,<3.0"]
+build-backend = "poetry.core.masonry.api"

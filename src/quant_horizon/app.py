@@ -1,9 +1,11 @@
 """FastAPI application and browser CORS configuration."""
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .config import API_VERSION
+from .exceptions import BusinessRuleError
 
 
 app = FastAPI(
@@ -16,6 +18,27 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+
+@app.exception_handler(BusinessRuleError)
+async def business_rule_exception_handler(
+    request: Request,
+    exception: BusinessRuleError,
+) -> JSONResponse:
+    """Return stable, structured responses for business-rule violations."""
+
+    del request
+    return JSONResponse(
+        status_code=exception.status_code,
+        content={
+            "error": {
+                "code": exception.code,
+                "message": exception.message,
+                "context": exception.context,
+            }
+        },
+    )
+
 
 # The React interface runs on a different origin from the local API. The API
 # starts on 127.0.0.1 by default and does not use cookies, so only the methods

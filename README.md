@@ -168,6 +168,31 @@ local, CI, and deployment installations reproducible.
 - `DELETE /v1/positions/{ticker}/acceptances`
 - `GET /v1/data/{ticker}`
 
+## Backtest date validation
+
+The `POST /v1/backtests/period` endpoint evaluates date-range business rules
+before downloading data or training a model. Business violations return HTTP
+`422` with a stable code and contextual values. For example:
+
+```json
+{
+  "error": {
+    "code": "INVALID_BACKTEST_DATE_RANGE",
+    "message": "The start date must be earlier than the end date.",
+    "context": {
+      "start_date": "2026-07-17",
+      "end_date": "2026-07-17"
+    }
+  }
+}
+```
+
+The API treats the selected end date as inclusive. Internally it adds one
+calendar day when calling Yahoo Finance because the provider treats `end` as
+exclusive. The service also validates future dates, the 15-year maximum range,
+periods without trading sessions, and periods with too few sessions for the
+requested horizon.
+
 ## Model selection
 
 Each request may set `model` to one of:

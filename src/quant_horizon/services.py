@@ -13,6 +13,10 @@ import pandas as pd
 from fastapi import HTTPException
 
 from . import pipeline
+from .backtest_validation import (
+    validate_backtest_date_range,
+    validate_backtest_market_data,
+)
 from .market_calendar import (
     horizon_between_close_and_target,
     next_trading_days,
@@ -30,6 +34,7 @@ from .dtos import (
     HistoricalForecastRequest,
 )
 from .entities import TradeType
+from .exceptions import BusinessRuleError
 from .investment_models import normalize_model_name
 from .persistence import (
     list_persisted_data,
@@ -669,10 +674,15 @@ def reproduce_historical_forecasts(
 
 def simulate_and_save_backtest(
     parameters: BacktestRequest,
+    *,
+    prepared_dataset: tuple[pd.DataFrame, pd.DataFrame] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, int]:
     horizon_trading_days = parameters.horizon_trading_days
     model_used = normalize_model_name(parameters.model)
-    _, _, X, events = build_data(parameters)
+    if prepared_dataset is None:
+        _, _, X, events = build_data(parameters)
+    else:
+        X, events = prepared_dataset
     simulation, retraining_log = pipeline.simulate_investment(
         X=X,
         events=events,
@@ -732,6 +742,12 @@ def run_backtest(parameters: BacktestRequest) -> dict[str, Any]:
 def run_period_backtest(
     parameters: PeriodBacktestRequest,
 ) -> dict[str, Any]:
+    validate_backtest_date_range(
+        start_date=parameters.start_date,
+        end_date=parameters.end_date,
+        horizon_trading_days=parameters.horizon_trading_days,
+    )
+
     training_start = parameters.start_date - timedelta(
         days=365 * parameters.training_history_years
     )
@@ -739,6 +755,7 @@ def run_period_backtest(
         ticker=parameters.ticker,
         model=parameters.model,
         start=training_start,
+        # Yahoo Finance treats end as exclusive. The API date is inclusive.
         end=parameters.end_date + timedelta(days=1),
         horizon=parameters.horizon_trading_days,
         horizon_unit="daily",
@@ -752,8 +769,33 @@ def run_period_backtest(
         initial_capital=parameters.initial_capital,
         retrain_frequency_days=parameters.retrain_frequency_days,
     )
+
+    try:
+        prices, _, X, events = build_data(configuration)
+    except ValueError as exception:
+        message = str(exception)
+        if "No data was downloaded" in message:
+            raise BusinessRuleError(
+                code="BACKTEST_NO_MARKET_DATA",
+                message="No market data was found for the selected period.",
+                context={
+                    "ticker": parameters.ticker,
+                    "start_date": parameters.start_date.isoformat(),
+                    "end_date": parameters.end_date.isoformat(),
+                },
+            ) from exception
+        raise
+
+    validate_backtest_market_data(
+        prices=prices,
+        start_date=parameters.start_date,
+        end_date=parameters.end_date,
+        horizon_trading_days=parameters.horizon_trading_days,
+    )
+
     simulation, retraining_log, metrics, backtest_id = simulate_and_save_backtest(
-        configuration
+        configuration,
+        prepared_dataset=(X, events),
     )
 
     trades: list[dict[str, Any]] = []
@@ -807,6 +849,8 @@ async def run_with_error_handling(function, parameters):
     async with MODEL_LOCK:
         try:
             return await asyncio.to_thread(function, parameters)
+        except BusinessRuleError:
+            raise
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except RuntimeError as exc:

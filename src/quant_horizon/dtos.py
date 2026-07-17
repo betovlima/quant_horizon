@@ -399,15 +399,8 @@ class PeriodBacktestRequest(BaseModel):
         except ValueError as exc:
             raise ValueError("Invalid ticker.") from exc
 
-    @model_validator(mode="after")
-    def validate_period(self):
-        if self.end_date < self.start_date:
-            raise ValueError("end_date must be on or after start_date.")
-        if self.end_date > date.today():
-            raise ValueError("end_date cannot be in the future for a backtest.")
-        if (self.end_date - self.start_date).days > 365 * 15:
-            raise ValueError("A backtest must not exceed 15 years.")
-        return self
+    # Date-range business rules are evaluated by the backtest service so the
+    # API can return stable error codes and contextual information to clients.
 
 
 class PeriodBacktestTrade(BaseModel):
